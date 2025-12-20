@@ -1,0 +1,44 @@
+name: News Bot
+
+on:
+  workflow_dispatch:   # 手動觸發
+  schedule:
+    - cron: "*/20 * * * *"   # 每 20 分鐘執行一次
+
+permissions:
+  contents: write   # 讓 GITHUB_TOKEN 有寫入 repo 的權限
+
+jobs:
+  run-news-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Create sources.yml from Secrets
+        run: |
+          echo "${{ secrets.SOURCES_YML }}" > sources.yml
+
+      - name: Run bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: |
+          python run_bot.py
+
+      - name: Commit pushed.json back to repo (force push)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add pushed.json
+          git diff --cached --quiet || git commit -m "Update pushed.json"
+          git push origin HEAD:main --force
