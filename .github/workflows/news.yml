@@ -3,7 +3,7 @@ name: News Bot
 on:
   workflow_dispatch:   # 手動觸發
   schedule:
-    - cron: "*/20 * * * *"   # 每 20 分鐘執行一次
+    - cron: "15,35,55 * * * *"
 
 permissions:
   contents: write   # 讓 GITHUB_TOKEN 有寫入 repo 的權限
