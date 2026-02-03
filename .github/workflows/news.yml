@@ -13,32 +13,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4 # 升級至 v4
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
-          cache: 'pip' # ✅ 加入快取，加速高頻率安裝過程
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Create sources.yml from Secrets
-        run: |
-          if [ -z "${{ secrets.SOURCES_YML }}" ]; then
-            echo "❌ SOURCES_YML secret is empty!"
-            exit 1
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install feedparser PyYAML requests python-dotenv
           fi
-          echo "${{ secrets.SOURCES_YML }}" > sources.yml
 
       - name: Run bot
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          SOURCES_YML: ${{ secrets.SOURCES_YML }}
         run: |
+          # 1. 安全地建立 sources.yml，避免 Shell 誤解析內容
+          echo "$SOURCES_YML" > sources.yml
+          
+          # 2. 檢查檔案是否成功產生且不為空
+          if [ ! -s sources.yml ]; then
+            echo "❌ Error: SOURCES_YML secret is empty or not created!"
+            exit 1
+          fi
+          
+          # 3. 執行程式 (請確認你的檔名是 run_bot.py)
           python run_bot.py
 
       - name: Commit pushed.json back to repo
@@ -49,8 +56,8 @@ jobs:
           if [ -f pushed.json ]; then
             git add pushed.json
             if ! git diff --cached --quiet; then
-              git commit -m "Update pushed.json [skip ci]" # ✅ 跳過 CI 標籤
-              # ✅ 先拉取最新狀態再推播，徹底解決與手動更新之間的衝突
+              git commit -m "Update pushed.json [skip ci]"
+              # 先拉取最新狀態再推，避免衝突
               git pull --rebase origin main
               git push origin HEAD:main
             else
