@@ -60,50 +60,40 @@ def send_telegram(text: str, delay: int):
         print("✅ 推播成功")
     time.sleep(delay)
 
-def fetch_rss(source_name, url, keywords, exclude_path, match_mode="any"):
+def fetch_rss(source_name, url, keywords, exclude_path, exclude_titles, match_mode="any"):
     results = []
     
-    # 🚫 定義不想看到的標題關鍵字 (負面過濾)
-    exclude_title_keywords = ["|娛樂", "- 生活"]
-    
+    # 這裡保留你設定的預設值邏輯
+    if not exclude_titles:
+        exclude_titles = ["|娛樂", "- 生活"]
+
     try:
         feed = feedparser.parse(url)
         for entry in feed.entries:
-            title = entry.title
-            link = entry.link
-            summary = getattr(entry, "summary", getattr(entry, "description", ""))
+            title = entry.title.strip()
+            link = entry.link.strip()
+            summary = getattr(entry, "summary", getattr(entry, "description", "")).strip()
             
             # 第一步：先檢查是否要排除 (負面過濾)
-            # 只要標題中包含任何一個排除字眼，就跳過這則新聞
-            is_excluded = False
-            for ex_kw in exclude_title_keywords:
-                if ex_kw in title:
-                    print(f"⏩ 標題排除成功: [{ex_kw}] {title}")
-                    is_excluded = True
-                    break # 跳出內層 for
-            
-            if is_excluded:
-                continue # 繼續處理下一則新聞
+            if any(ex_kw in title for ex_kw in exclude_titles):
+                print(f"⏩ 標題排除成功: {title}")
+                continue
 
             # 第二步：檢查 URL 路徑過濾
             url_parts = link.split('/')
             if exclude_path and any(path_kw in url_parts for path_kw in exclude_path):
-                print(f"⏩ 過濾排除路徑: {title} ({link})")
+                print(f"⏩ 過濾排除路徑: {title}")
                 continue
 
-            # 第三步：檢查是否符合你想看的關鍵字 (正面過濾)
-            # 這裡必須保留 text_to_check，因為你要在標題 + 摘要中搜尋關鍵字
+            # 第三步：檢查是否符合關鍵字 (正面過濾)
             text_to_check = f"{title} {summary}"
             
             if keywords:
-                if match_mode == "any":
-                    if any(kw in text_to_check for kw in keywords):
-                        results.append((source_name, title, link))
-                elif match_mode == "all":
-                    if all(kw in text_to_check for kw in keywords):
-                        results.append((source_name, title, link))
+                if match_mode == "any" and any(kw in text_to_check for kw in keywords):
+                    results.append((source_name, title, link))
+                elif match_mode == "all" and all(kw in text_to_check for kw in keywords):
+                    results.append((source_name, title, link))
             else:
-                # 無關鍵字時全收
                 results.append((source_name, title, link))
                 
     except Exception as e:
@@ -125,7 +115,8 @@ def load_config():
                 if "sources" not in config:
                     config["sources"] = []
                 config["sources"].extend(secret_config["sources"])
-            for key in ["keywords", "match_mode", "delay", "exclude_path"]:
+            # 💡 修正：必須包含 "exclude_titles" 才能從 Secrets 讀取標題過濾清單
+            for key in ["keywords", "match_mode", "delay", "exclude_path", "exclude_titles"]:
                 if key in secret_config:
                     config[key] = secret_config[key]
         except Exception as e:
@@ -140,6 +131,8 @@ def main():
 
     keywords = config.get("keywords", [])
     exclude_path = config.get("exclude_path", [])
+    # 💡 修正：從 config 取得 exclude_titles，否則下方的 fetch_rss 會因為變數未定義而報錯
+    exclude_titles = config.get("exclude_titles", [])
     match_mode = config.get("match_mode", "any")
     delay = config.get("delay", 1)
 
@@ -149,16 +142,12 @@ def main():
             continue
         name = source["name"]
         url = source["url"]
-        results = fetch_rss(name, url, keywords, exclude_path, match_mode)
+        # 💡 修正：傳入正確的 6 個參數
+        results = fetch_rss(name, url, keywords, exclude_path, exclude_titles, match_mode)
 
         for src, title, link in results:
             prev_title = pushed_records.get(link)
-            if prev_title is None:
-                pushed_records[link] = title
-                message = f"{src}\n{title}\n{link}"
-                send_telegram(message, delay)
-                save_pushed_records(pushed_records)
-            elif prev_title != title:
+            if prev_title is None or prev_title != title:
                 pushed_records[link] = title
                 message = f"{src}\n{title}\n{link}"
                 send_telegram(message, delay)
