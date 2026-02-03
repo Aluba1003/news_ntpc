@@ -75,9 +75,15 @@ def fetch_rss(source_name, url, keywords, exclude_path, match_mode="any"):
             
             # 第一步：先檢查是否要排除 (負面過濾)
             # 只要標題中包含任何一個排除字眼，就跳過這則新聞
-            if any(ex_kw in title for ex_kw in exclude_title_keywords):
-                print(f"⏩ 標題排除成功: {title}")
-                continue
+            is_excluded = False
+            for ex_kw in exclude_title_keywords:
+                if ex_kw in title:
+                    print(f"⏩ 標題排除成功: [{ex_kw}] {title}")
+                    is_excluded = True
+                    break # 跳出內層 for
+            
+            if is_excluded:
+                continue # 繼續處理下一則新聞
 
             # 第二步：檢查 URL 路徑過濾
             url_parts = link.split('/')
@@ -90,12 +96,14 @@ def fetch_rss(source_name, url, keywords, exclude_path, match_mode="any"):
             text_to_check = f"{title} {summary}"
             
             if keywords:
-                if match_mode == "any" and any(kw in text_to_check for kw in keywords):
-                    results.append((source_name, title, link))
-                elif match_mode == "all" and all(kw in text_to_check for kw in keywords):
-                    results.append((source_name, title, link))
+                if match_mode == "any":
+                    if any(kw in text_to_check for kw in keywords):
+                        results.append((source_name, title, link))
+                elif match_mode == "all":
+                    if all(kw in text_to_check for kw in keywords):
+                        results.append((source_name, title, link))
             else:
-                # 如果沒有設定關鍵字，就代表該來源的新聞全收 (除非被前面的排除清單攔截)
+                # 無關鍵字時全收
                 results.append((source_name, title, link))
                 
     except Exception as e:
