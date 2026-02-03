@@ -64,7 +64,7 @@ def fetch_rss(source_name, url, keywords, exclude_path, match_mode="any"):
     results = []
     
     # 🚫 定義不想看到的標題關鍵字 (負面過濾)
-    exclude_title_keywords = ["｜娛樂", "- 生活"]
+    exclude_title_keywords = ["|娛樂", "- 生活"]
     
     try:
         feed = feedparser.parse(url)
