@@ -62,21 +62,32 @@ def send_telegram(text: str, delay: int):
 
 def fetch_rss(source_name, url, keywords, exclude_path, match_mode="any"):
     results = []
+    
+    # 🚫 定義不想看到的標題關鍵字 (負面過濾)
+    exclude_title_keywords = ["｜娛樂", "- 生活"]
+    
     try:
         feed = feedparser.parse(url)
         for entry in feed.entries:
-            title, link = entry.title, entry.link
+            title = entry.title
+            link = entry.link
             summary = getattr(entry, "summary", getattr(entry, "description", ""))
-            text_to_check = f"{title} {summary}"
-
-            # 🚫 排除標題結尾有 "- 生活" 的新聞
-            if title.strip().endswith("- 生活"):
+            
+            # 第一步：先檢查是否要排除 (負面過濾)
+            # 只要標題中包含任何一個排除字眼，就跳過這則新聞
+            if any(ex_kw in title for ex_kw in exclude_title_keywords):
+                print(f"⏩ 標題排除成功: {title}")
                 continue
 
+            # 第二步：檢查 URL 路徑過濾
             url_parts = link.split('/')
             if exclude_path and any(path_kw in url_parts for path_kw in exclude_path):
                 print(f"⏩ 過濾排除路徑: {title} ({link})")
                 continue
+
+            # 第三步：檢查是否符合你想看的關鍵字 (正面過濾)
+            # 這裡必須保留 text_to_check，因為你要在標題 + 摘要中搜尋關鍵字
+            text_to_check = f"{title} {summary}"
             
             if keywords:
                 if match_mode == "any" and any(kw in text_to_check for kw in keywords):
@@ -84,9 +95,12 @@ def fetch_rss(source_name, url, keywords, exclude_path, match_mode="any"):
                 elif match_mode == "all" and all(kw in text_to_check for kw in keywords):
                     results.append((source_name, title, link))
             else:
+                # 如果沒有設定關鍵字，就代表該來源的新聞全收 (除非被前面的排除清單攔截)
                 results.append((source_name, title, link))
+                
     except Exception as e:
-        results.append((source_name, f"【抓取失敗: {e}】", ""))
+        print(f"❌ {source_name} 抓取發生錯誤: {e}")
+        
     return results
 
 def load_config():
