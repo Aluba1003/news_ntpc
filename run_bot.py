@@ -60,7 +60,7 @@ def send_telegram(text: str, delay: int):
         print("✅ 推播成功")
     time.sleep(delay)
 
-def fetch_rss(source_name, url, keywords, match_mode="any"):
+def fetch_rss(source_name, url, keywords, exclude_path, match_mode="any"):
     results = []
     try:
         feed = feedparser.parse(url)
@@ -73,6 +73,11 @@ def fetch_rss(source_name, url, keywords, match_mode="any"):
             if title.strip().endswith("- 生活"):
                 continue
 
+            url_parts = link.split('/')
+            if exclude_path and any(path_kw in url_parts for path_kw in exclude_path):
+                print(f"⏩ 過濾排除路徑: {title} ({link})")
+                continue
+            
             if keywords:
                 if match_mode == "any" and any(kw in text_to_check for kw in keywords):
                     results.append((source_name, title, link))
@@ -98,7 +103,7 @@ def load_config():
                 if "sources" not in config:
                     config["sources"] = []
                 config["sources"].extend(secret_config["sources"])
-            for key in ["keywords", "match_mode", "delay"]:
+            for key in ["keywords", "match_mode", "delay", "exclude_path"]:
                 if key in secret_config:
                     config[key] = secret_config[key]
         except Exception as e:
@@ -112,6 +117,7 @@ def main():
         raise ValueError("❌ 沒有找到任何設定 sources.yml 或 SOURCES_YML")
 
     keywords = config.get("keywords", [])
+    exclude_path = config.get("exclude_path", [])
     match_mode = config.get("match_mode", "any")
     delay = config.get("delay", 1)
 
@@ -121,7 +127,7 @@ def main():
             continue
         name = source["name"]
         url = source["url"]
-        results = fetch_rss(name, url, keywords, match_mode)
+        results = fetch_rss(name, url, keywords, exclude_path, match_mode)
 
         for src, title, link in results:
             prev_title = pushed_records.get(link)
