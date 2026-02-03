@@ -11,61 +11,39 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-
 PUSHED_FILE = "pushed.json"
-MAX_RECORDS = 1000  # 限制最多保留 1000 筆紀錄
+MAX_RECORDS = 1000
 
-# 載入已推播紀錄
 def load_pushed_records():
     if os.path.exists(PUSHED_FILE):
         try:
             with open(PUSHED_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return OrderedDict(data)
-        except Exception as e:
-            print(f"❌ 無法讀取 {PUSHED_FILE}: {e}")
+                return OrderedDict(json.load(f))
+        except: pass
     return OrderedDict()
 
-# 儲存已推播紀錄
 def save_pushed_records(records):
     while len(records) > MAX_RECORDS:
-        records.popitem(last=False)  # 刪掉最舊的
-    try:
-        with open(PUSHED_FILE, "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"❌ 無法寫入 {PUSHED_FILE}: {e}")
+        records.popitem(last=False)
+    with open(PUSHED_FILE, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
 
 pushed_records = load_pushed_records()
 
 def send_telegram(text: str, delay: int):
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("❌ 缺少 TELEGRAM_TOKEN 或 CHAT_ID")
-        return
+    if not TELEGRAM_TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    resp = requests.post(url, json={
-        "chat_id": CHAT_ID,
-        "text": text,
-        "disable_web_page_preview": True
-    })
-    if resp.status_code != 200:
-        data = resp.json()
-        print("❌ 推播失敗:", data)
-        if data.get("error_code") == 429:
-            retry_after = data["parameters"]["retry_after"]
-            print(f"⏸ 等待 {retry_after} 秒後重試...")
-            time.sleep(retry_after)
-            return send_telegram(text, delay)
-    else:
-        print("✅ 推播成功")
+    resp = requests.post(url, json={"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True})
+    if resp.status_code == 429:
+        retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
+        time.sleep(retry_after)
+        return send_telegram(text, delay)
     time.sleep(delay)
 
 def fetch_rss(source_name, url, keywords, exclude_path, exclude_titles, match_mode="any"):
     results = []
-    
-    # 這裡保留你設定的預設值邏輯
-    if not exclude_titles:
-        exclude_titles = ["|娛樂", "- 生活"]
+    # 預設過濾字（當 YAML 為空時）
+    target_excludes = exclude_titles if exclude_titles else ["娛樂", "生活"]
 
     try:
         feed = feedparser.parse(url)
@@ -74,20 +52,22 @@ def fetch_rss(source_name, url, keywords, exclude_path, exclude_titles, match_mo
             link = entry.link.strip()
             summary = getattr(entry, "summary", getattr(entry, "description", "")).strip()
             
-            # 第一步：先檢查是否要排除 (負面過濾)
-            if any(ex_kw in title for ex_kw in exclude_titles):
-                print(f"⏩ 標題排除成功: {title}")
+            # --- 強化過濾邏輯：標題正規化 ---
+            # 把全形 ｜ 轉半形 |, 把全形 － 轉半形 -, 並去掉所有空格
+            clean_title = title.replace('｜', '|').replace('－', '-').replace(' ', '')
+            
+            # 只要排除關鍵字（如：娛樂）出現在處理後的標題中，就跳過
+            if any(ex_kw in clean_title for ex_kw in target_excludes):
+                print(f"⏩ 成功攔截娛樂/排除新聞: {title}")
                 continue
 
-            # 第二步：檢查 URL 路徑過濾
+            # URL 路徑過濾
             url_parts = link.split('/')
             if exclude_path and any(path_kw in url_parts for path_kw in exclude_path):
-                print(f"⏩ 過濾排除路徑: {title}")
                 continue
 
-            # 第三步：檢查是否符合關鍵字 (正面過濾)
+            # 正面關鍵字檢查 (新北)
             text_to_check = f"{title} {summary}"
-            
             if keywords:
                 if match_mode == "any" and any(kw in text_to_check for kw in keywords):
                     results.append((source_name, title, link))
@@ -97,8 +77,7 @@ def fetch_rss(source_name, url, keywords, exclude_path, exclude_titles, match_mo
                 results.append((source_name, title, link))
                 
     except Exception as e:
-        print(f"❌ {source_name} 抓取發生錯誤: {e}")
-        
+        print(f"❌ {source_name} 錯誤: {e}")
     return results
 
 def load_config():
@@ -106,54 +85,40 @@ def load_config():
     if os.path.exists("sources.yml"):
         with open("sources.yml", "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-
+    
     secret_sources = os.getenv("SOURCES_YML")
     if secret_sources:
         try:
             secret_config = yaml.safe_load(secret_sources)
             if "sources" in secret_config:
-                if "sources" not in config:
-                    config["sources"] = []
+                if "sources" not in config: config["sources"] = []
                 config["sources"].extend(secret_config["sources"])
-            # 💡 修正：必須包含 "exclude_titles" 才能從 Secrets 讀取標題過濾清單
             for key in ["keywords", "match_mode", "delay", "exclude_path", "exclude_titles"]:
-                if key in secret_config:
-                    config[key] = secret_config[key]
-        except Exception as e:
-            print(f"❌ 無法解析 SOURCES_YML: {e}")
-
+                if key in secret_config: config[key] = secret_config[key]
+        except: pass
     return config
 
 def main():
     config = load_config()
-    if not config:
-        raise ValueError("❌ 沒有找到任何設定 sources.yml 或 SOURCES_YML")
+    if not config: return
 
     keywords = config.get("keywords", [])
     exclude_path = config.get("exclude_path", [])
-    # 💡 修正：從 config 取得 exclude_titles，否則下方的 fetch_rss 會因為變數未定義而報錯
     exclude_titles = config.get("exclude_titles", [])
     match_mode = config.get("match_mode", "any")
     delay = config.get("delay", 1)
 
     for source in config.get("sources", []):
-        if not source.get("enabled", True):
-            print(f"⏸ 跳過來源: {source['name']}")
-            continue
-        name = source["name"]
-        url = source["url"]
-        # 💡 修正：傳入正確的 6 個參數
-        results = fetch_rss(name, url, keywords, exclude_path, exclude_titles, match_mode)
+        if not source.get("enabled", True): continue
+        
+        results = fetch_rss(source["name"], source["url"], keywords, exclude_path, exclude_titles, match_mode)
 
         for src, title, link in results:
-            prev_title = pushed_records.get(link)
-            if prev_title is None or prev_title != title:
+            # 只有當 link 不在紀錄中，或是標題有更新時才推播
+            if link not in pushed_records or pushed_records[link] != title:
                 pushed_records[link] = title
-                message = f"{src}\n{title}\n{link}"
-                send_telegram(message, delay)
+                send_telegram(f"{src}\n{title}\n{link}", delay)
                 save_pushed_records(pushed_records)
-            else:
-                print(f"⏸ 跳過重複: {title} ({link})")
 
 if __name__ == "__main__":
     main()
